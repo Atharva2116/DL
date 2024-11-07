@@ -1,0 +1,50 @@
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.applications import VGG16
+import pandas as pd
+
+# Load MNIST data from CSV files
+train_data = pd.read_csv('train_mnist.csv')
+test_data = pd.read_csv('test_mnist.csv')
+
+# Separate features and labels
+x_train = train_data.iloc[:, 1:].values
+y_train = train_data.iloc[:, 0].values
+x_test = test_data.iloc[:, 1:].values
+y_test = test_data.iloc[:, 0].values
+
+# Normalize and reshape to 28x28x1, then resize to 64x64x3
+x_train = x_train / 255.0
+x_train = x_train.reshape(-1, 28, 28, 1)
+x_train = tf.image.resize(x_train, [64, 64])
+x_train = tf.image.grayscale_to_rgb(x_train)
+
+x_test = x_test / 255.0
+x_test = x_test.reshape(-1, 28, 28, 1)
+x_test = tf.image.resize(x_test, [64, 64])
+x_test = tf.image.grayscale_to_rgb(x_test)
+
+# Convert labels to categorical
+y_train = tf.keras.utils.to_categorical(y_train, 10)
+y_test = tf.keras.utils.to_categorical(y_test, 10)
+
+# Load and customize the VGG16 model
+weights_path = "vgg16_weights_tf_dim_ordering_tf_kernels_notop.h5"
+base_model = VGG16(weights=weights_path, include_top=False, input_shape=(64, 64, 3))
+
+for layer in base_model.layers:
+    layer.trainable = False
+
+x = Flatten()(base_model.output)
+x = Dense(512, activation='relu')(x)
+x = Dropout(0.3)(x)
+predictions = Dense(10, activation='softmax')(x)
+
+model = Model(inputs=base_model.input, outputs=predictions)
+
+model.compile(optimizer=Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Train the model
+model.fit(x_train, y_train, batch_size=64, epochs=10, validation_data=(x_test, y_test))
