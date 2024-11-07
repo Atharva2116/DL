@@ -1,0 +1,83 @@
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Input
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix, classification_report
+
+# Load the NSL-KDD dataset (assuming 'KDDTrain+' is the training set and 'KDDTest+' is the test set)
+train_df = pd.read_csv("KDDTrain+.csv", header=None)
+test_df = pd.read_csv("KDDTest+.csv", header=None)
+
+# Assign features and labels (assuming last column is the label)
+X_train = train_df.iloc[:, :-1]
+y_train = train_df.iloc[:, -1]
+X_test = test_df.iloc[:, :-1]
+y_test = test_df.iloc[:, -1]
+
+# Encode target labels (Normal: 0, Anomaly: 1) for binary classification
+y_train = y_train.apply(lambda x: 0 if x == 'normal' else 1)
+y_test = y_test.apply(lambda x: 0 if x == 'normal' else 1)
+
+# Data preprocessing: Standardize the data
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Define the Autoencoder model
+encoding_dim = 16  # Dimension of encoded representation
+
+encoder = Sequential([
+    Input(shape=(X_train.shape[1],)),
+    Dense(64, activation='relu'),
+    Dense(32, activation='relu'),
+    Dense(encoding_dim, activation='relu')
+])
+
+decoder = Sequential([
+    Input(shape=(encoding_dim,)),
+    Dense(32, activation='relu'),
+    Dense(64, activation='relu'),
+    Dense(X_train.shape[1], activation='linear')
+])
+
+# Combine encoder and decoder to create the autoencoder
+autoencoder = Sequential([encoder, decoder])
+
+# Compile the autoencoder
+autoencoder.compile(optimizer='adam', loss='mean_squared_error')
+
+# Train the autoencoder to reconstruct normal data
+normal_X_train = X_train[y_train == 0]  # Only train on normal data
+history = autoencoder.fit(
+    normal_X_train, normal_X_train,
+    epochs=50,
+    batch_size=64,
+    shuffle=True,
+    validation_data=(X_test, X_test)
+)
+
+# Set a threshold for anomaly detection based on reconstruction error
+reconstruction_error = np.mean(np.square(normal_X_train - autoencoder.predict(normal_X_train)), axis=1)
+threshold = np.mean(reconstruction_error) + np.std(reconstruction_error)
+
+# Predict on test data
+test_reconstruction_error = np.mean(np.square(X_test - autoencoder.predict(X_test)), axis=1)
+y_pred = (test_reconstruction_error > threshold).astype(int)  # Anomaly if error > threshold
+
+# Evaluation
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+# Plot loss during training
+import matplotlib.pyplot as plt
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
